@@ -6,13 +6,17 @@ const server = new Server();
 const pm = new PluginManager({ server, pluginsDir: path.join(__dirname, '..', 'plugins') });
 server.pluginManager = pm;
 
-pm.loadPlugins();
-server.start();
+server.start().catch(error => {
+  console.error('NodeMC failed to start:', error);
+  process.exitCode = 1;
+});
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
+async function shutdown() {
   console.log('Shutting down...');
-  pm.disableAll();
-  server.stop();
+  await server.stop();
   process.exit(0);
-});
+}
+
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
