@@ -11,6 +11,10 @@ Quick start
 1. Install (optional): npm install
 2. Start: npm start
 
+The terminal dashboard uses timestamped, severity-colored logs and exposes a small
+operator console when started in an interactive terminal. Type `help` to see the
+available commands: `status`, `players`, `plugins`, `clear`, and `stop`.
+
 Plugin API
 ----------
 Plugins can be a JavaScript file or a directory containing `index.js`. They export an object with:

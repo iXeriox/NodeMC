@@ -89,7 +89,7 @@ class PluginManager {
   _makePluginAPI(id) {
     const plugin = this.plugins.get(id);
     if (!plugin) throw new Error(`Plugin ${id} is not active`);
-    const prefix = () => `[${new Date().toISOString()}] [${id}]`;
+    const prefix = () => `[${id}]`;
     return Object.freeze({
       id,
       events,
