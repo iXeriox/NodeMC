@@ -123,6 +123,7 @@ function terrainHeight(worldX, worldZ, seed) {
 
 module.exports = {
   name: GENERATOR_ID,
+  version: '1.0.0',
 
   onEnable(api) {
     if (!api.server) {
@@ -132,7 +133,7 @@ module.exports = {
     const mcData = require('minecraft-data')(api.server.config.version);
     const blocks = blockIds(mcData);
 
-    api.server.registerWorldGenerator({
+    api.registerService('worldGenerator', {
       id: GENERATOR_ID,
       spawnPoint: {x: ISLAND_CENTER_X, y: 75, z: ISLAND_CENTER_Z},
 
@@ -260,7 +261,6 @@ module.exports = {
   },
 
   onDisable(api) {
-    if (!api.server || api.server.running) return;
-    api.server.unregisterWorldGenerator(GENERATOR_ID);
+    api.logger.log('World generator stopped');
   }
 };
