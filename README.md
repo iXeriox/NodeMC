@@ -11,6 +11,10 @@ Quick start
 1. Install (optional): npm install
 2. Start: npm start
 
+The terminal dashboard uses timestamped, severity-colored logs and exposes a small
+operator console when started in an interactive terminal. Type `help` to see the
+available commands: `status`, `players`, `plugins`, `clear`, and `stop`.
+
 Plugin API
 ----------
 Plugins can be a JavaScript file or a directory containing `index.js`. They export an object with:
@@ -49,6 +53,9 @@ Bundled plugins
 - `commands.js`: command registry and Brigadier tree sent to clients for completion.
 - `chat.js`: validation, broadcasts, and command routing.
 - `mobs.js`: bounded passive-mob spawning near online players.
+- `nodeAssistant.js`: dependency-free, rate-limited gameplay guidance when chat
+  messages address `Node` (for example, `Node, how do I build a house?`).
+- `scoreboard.js`: the NodeMC Nexus sidebar and lightweight coordinate/biome HUD.
 - `time.js`: configurable accelerated daylight (`timeScale`) with low-frequency updates.
 - `performance.js`: lightweight TPS, event-loop lag, memory, and busy-state monitoring
   through `/serverusage`.
@@ -62,9 +69,17 @@ The initial world radius defaults to six chunks, larger than the player view dis
 When a player changes chunks, the world plugin generates an additional safety margin
 before sending cached packets, so clients do not reach a visible edge. Existing world
 seed, spawn, and time metadata are retained and newly generated terrain is added to the
-in-memory chunk map. Terrain includes caves, rare cabins, loot chests, and stationary
-vendor villagers. Passive mobs use low-frequency, terrain-aware wandering to keep the
-server lightweight.
+in-memory chunk map. The deterministic generator creates unbounded warped continents,
+rivers, mountain chains, ten climate-driven biomes, layered stone and ores, caves,
+vegetation, and rare structures. It samples climate once per column and only visits the
+vertical range that can contain blocks, keeping generation lightweight without a fixed
+island boundary. Rare cabins, loot chests, and stationary vendor villagers are included.
+Passive mobs use low-frequency behavior decisions to idle, wander, form herds, avoid
+terrain hazards, and flee nearby players while remaining lightweight. Movement queues
+generate and encode terrain ahead of each player's direction of travel, coalescing rapid
+updates so exploration remains seamless without duplicating work. Players who fall into
+the void are restored to their last grounded position, and the on-screen NodeMC Nexus
+sidebar tracks location, biome, explored distance, online players, and rescues.
 
 Commands use the client Brigadier tree for tab completion. Close misspellings within
 two edits are also corrected automatically, such as `/statsu` resolving to `/status`.

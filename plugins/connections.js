@@ -27,12 +27,22 @@ module.exports = {
       if (!player?.client || player.client.ended) return;
       player.client.write('system_chat', {content: JSON.stringify(component), isActionBar: false});
     };
+    const sendActionBar = (player, message, color = 'white') => {
+      if (!player?.client || player.client.ended) return;
+      player.client.write('action_bar', {text: JSON.stringify({text: message, color})});
+    };
+    const sendTitle = (player, title, subtitle = '') => {
+      if (!player?.client || player.client.ended) return;
+      player.client.write('set_title_time', {fadeIn: 10, stay: 60, fadeOut: 15});
+      player.client.write('set_title_text', {text: JSON.stringify({text: title, color: 'aqua', bold: true})});
+      player.client.write('set_title_subtitle', {text: JSON.stringify({text: subtitle, color: 'gray'})});
+    };
     const broadcastMessage = (message, color = 'white') => {
       api.emit('chatBroadcast', {message, color, timestamp: Date.now()});
       for (const player of api.server.players.values()) sendMessage(player, message, color);
     };
 
-    api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage, sendComponent});
+    api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage, sendComponent, sendActionBar, sendTitle});
     api.registerEvent('worldChunksReady', ({player, chunks}) => {
       if (!player.spawned || player.client.ended) return;
       const centerX = Math.floor(player.position.x / 16);
@@ -51,7 +61,6 @@ module.exports = {
         player.loadedChunks.add(key);
       }
     });
-    api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage});
     api.registerEvent('serverReady', () => {
       networkServer = mc.createServer({
         host: api.server.config.host,
@@ -65,17 +74,11 @@ module.exports = {
         keepAlive: true,
         hideErrors: false
       });
-      networkServer.on('login', client => connect(client, api, worldService, commands, broadcastMessage));
+      networkServer.on('login', client => connect(client, api, worldService, commands, broadcastMessage, {sendMessage, sendActionBar, sendTitle}));
       networkServer.on('error', error => api.logger.error('Minecraft listener error:', error));
       networkServer.on('listening', () => api.logger.log(`Accepting players on ${api.server.config.host}:${api.server.config.port}`));
       let tickCount = 0;
       tickTimer = setInterval(() => api.emit('tick', {tick: ++tickCount, now: Date.now()}), 50);
-      tickTimer = setInterval(() => {
-        const world = worldService.world;
-        world.worldTime++;
-        api.emit('tick', {time: world.worldTime});
-        broadcastPacket('time_update', {age: [0, world.worldTime], time: [0, world.worldTime % 24000]});
-      }, 50);
     });
 
     this.close = () => {
@@ -92,7 +95,7 @@ module.exports = {
   }
 };
 
-function connect(client, api, worldService, commands, broadcastMessage) {
+function connect(client, api, worldService, commands, broadcastMessage, display) {
   if (!api.server.ready) {
     client.end('Server is still starting');
     return;
@@ -112,20 +115,23 @@ function connect(client, api, worldService, commands, broadcastMessage) {
     food: 20,
     gamemode: 0,
     loadedChunks: new Set(),
-    lastChunk: null
-    gamemode: 1
+    lastChunk: null,
+    lastSafePosition: {...spawn, y: spawn.y + 1},
+    teleportId: 1,
+    stats: {deaths: 0, distance: 0}
   };
   api.server.players.set(player.id, player);
 
   client.on('packet', (data, metadata) => {
     api.emit('packetReceived', {player, packetName: metadata.name, state: metadata.state, data});
-    updatePosition(player, data, metadata.name);
+    updatePosition(player, data, metadata.name, api, display);
     if (metadata.name === 'teleport_confirm' && data.teleportId === 1 && !player.spawned) {
       client.write('abilities', {flags: 0, flyingSpeed: 0.05, walkingSpeed: 0.1});
-      client.write('abilities', {flags: 0x02 | 0x04, flyingSpeed: 0.05, walkingSpeed: 0.1});
       commands.sendTree(client);
       client.write('held_item_slot', {slot: 0});
       player.spawned = true;
+      display.sendTitle(player, 'Welcome to NodeMC', 'Explore • Build • Ask Node for help');
+      display.sendActionBar(player, 'Tip: say “Node, how do I build a house?”', 'yellow');
       broadcastMessage(`${player.name} joined the game`, 'yellow');
       api.emit('playerJoin', player);
     }
@@ -173,7 +179,6 @@ function connect(client, api, worldService, commands, broadcastMessage) {
         chunks.push(chunk);
         player.loadedChunks.add(`${x},${z}`);
       }
-      if (chunk) chunks.push(chunk);
     }
   }
   sendChunkBatches(client, chunks, worldService);
@@ -190,13 +195,39 @@ function sendChunkBatches(client, chunks, worldService) {
   sendNext();
 }
 
-function updatePosition(player, data, packetName) {
+function updatePosition(player, data, packetName, api, display) {
   if (!['position', 'position_look', 'look'].includes(packetName)) return;
+  const previous = {...player.position};
   player.position = {x: data.x ?? player.position.x, y: data.y ?? player.position.y, z: data.z ?? player.position.z};
   player.rotation = {yaw: data.yaw ?? player.rotation.yaw, pitch: data.pitch ?? player.rotation.pitch};
+  const travelled = Math.hypot(player.position.x - previous.x, player.position.z - previous.z);
+  if (travelled < 32) player.stats.distance += travelled;
+  if (data.onGround && player.position.y > 0) player.lastSafePosition = {...player.position};
+  if (player.spawned && player.position.y < -16) {
+    rescueFromVoid(player);
+    display?.sendMessage(player, 'You fell out of the world and were rescued.', 'red');
+    api?.emit('playerDeath', {player, cause: 'void', rescued: true});
+  }
   const chunk = `${Math.floor(player.position.x / 16)},${Math.floor(player.position.z / 16)}`;
   if (chunk !== player.lastChunk) {
+    const previousChunk = player.lastChunk;
     player.lastChunk = chunk;
-    require('../src/events').emit('playerChunkChange', player);
+    const [chunkX, chunkZ] = chunk.split(',').map(Number);
+    const [previousX, previousZ] = previousChunk ? previousChunk.split(',').map(Number) : [chunkX, chunkZ];
+    require('../src/events').emit('playerChunkChange', {player, chunkX, chunkZ, directionX: Math.sign(chunkX - previousX), directionZ: Math.sign(chunkZ - previousZ)});
   }
 }
+
+function rescueFromVoid(player) {
+  const target = player.lastSafePosition || {x: 0, y: 80, z: 0};
+  player.position = {...target};
+  player.health = 20;
+  player.stats.deaths++;
+  player.client.write('update_health', {health: 20, food: player.food, foodSaturation: 5});
+  player.client.write('position', {x: target.x, y: target.y + 1, z: target.z, yaw: player.rotation.yaw, pitch: 0, flags: 0, teleportId: ++player.teleportId});
+  player.client.write('set_title_time', {fadeIn: 5, stay: 50, fadeOut: 10});
+  player.client.write('set_title_text', {text: JSON.stringify({text: 'VOID RESCUE', color: 'red', bold: true})});
+  player.client.write('set_title_subtitle', {text: JSON.stringify({text: 'Returned to your last safe position', color: 'yellow'})});
+}
+
+module.exports.rescueFromVoid = rescueFromVoid;
