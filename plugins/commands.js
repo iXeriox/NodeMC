@@ -36,12 +36,6 @@ module.exports = {
           api.logger.error(`Command /${command.name} failed:`, error);
           api.getService('connections')?.sendMessage(player, 'Command failed.', 'red');
         });
-        const command = commands.get(name.toLowerCase()) || Array.from(commands.values())
-          .find(candidate => candidate.aliases.includes(name.toLowerCase()));
-        if (!command || typeof command.executor !== 'function') return false;
-        command.executor({player, args, server: api.server, reply: (message, color) => {
-          api.getService('connections')?.sendMessage(player, message, color);
-        }});
         return true;
       },
       sendTree(client) {
