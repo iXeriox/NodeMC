@@ -46,21 +46,3 @@ test('auto-corrects a close command name', () => {
   assert.equal(services.get('commands').execute({uuid: 'test'}, '/statsu'), true);
   assert.equal(executed, true);
 });
-
-test('plugins command reports names, versions, and descriptions', () => {
-  const services = new Map();
-  let response;
-  const api = {
-    server: {players: new Map(), pluginManager: {getPluginInfo: () => [
-      {name: 'world', version: '1.0.0', description: 'Renders worlds.'}
-    ]}},
-    registerService(name, service) { services.set(name, service); },
-    getService(name) { return services.get(name); },
-    registerCommand(name, options) { services.get('commands').register(name, options); },
-    logger: {log() {}, error() {}}
-  };
-  services.set('connections', {sendMessage(player, message) { response = message; }});
-  plugin.onEnable(api);
-  assert.equal(services.get('commands').execute({uuid: 'test'}, '/plugins'), true);
-  assert.match(response, /world v1\.0\.0 — Renders worlds\./);
-});

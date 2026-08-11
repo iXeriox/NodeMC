@@ -15,7 +15,6 @@ const GRANTS = {
 module.exports = {
   name: 'permissions',
   version: '1.0.0',
-  description: 'Provides persistent permission levels and administration controls.',
   dependencies: ['commands'],
 
   async onEnable(api) {

@@ -3,7 +3,6 @@
 module.exports = {
   name: 'chat',
   version: '2.0.0',
-  description: 'Validates player chat and routes slash commands.',
   dependencies: ['commands'],
 
   onEnable(api) {

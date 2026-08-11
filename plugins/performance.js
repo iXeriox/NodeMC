@@ -5,7 +5,6 @@ const {monitorEventLoopDelay} = require('node:perf_hooks');
 module.exports = {
   name: 'performance',
   version: '1.0.0',
-  description: 'Monitors TPS, event-loop lag, memory, and server load.',
   dependencies: ['commands', 'connections'],
   onEnable(api) {
     const delay = monitorEventLoopDelay({resolution: 20});

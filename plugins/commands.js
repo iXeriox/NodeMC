@@ -3,7 +3,6 @@
 module.exports = {
   name: 'commands',
   version: '2.0.0',
-  description: 'Registers server commands, permissions, correction, and client completion.',
 
   onEnable(api) {
     const commands = new Map();
@@ -37,6 +36,12 @@ module.exports = {
           api.logger.error(`Command /${command.name} failed:`, error);
           api.getService('connections')?.sendMessage(player, 'Command failed.', 'red');
         });
+        const command = commands.get(name.toLowerCase()) || Array.from(commands.values())
+          .find(candidate => candidate.aliases.includes(name.toLowerCase()));
+        if (!command || typeof command.executor !== 'function') return false;
+        command.executor({player, args, server: api.server, reply: (message, color) => {
+          api.getService('connections')?.sendMessage(player, message, color);
+        }});
         return true;
       },
       sendTree(client) {
@@ -57,14 +62,6 @@ module.exports = {
       executor: ({server, reply}) => {
         const names = Array.from(server.players.values(), player => player.name);
         reply(`Online (${names.length}): ${names.join(', ') || 'nobody'}`, 'aqua');
-      }
-    });
-    api.registerCommand('plugins', {
-      description: 'Show loaded plugins and what they do',
-      executor: ({server, reply}) => {
-        const plugins = server.pluginManager.getPluginInfo();
-        reply(`Loaded plugins (${plugins.length}):\n${plugins.map(plugin =>
-          `${plugin.name} v${plugin.version} — ${plugin.description}`).join('\n')}`, 'aqua');
       }
     });
     api.logger.log('Command registry and client completion tree enabled');

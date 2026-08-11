@@ -72,14 +72,3 @@ test('awaits asynchronous plugin initialization in dependency order', async t =>
   assert.deepEqual(await manager.loadPlugins(), ['first', 'second']);
   await manager.disableAll();
 });
-
-test('exposes loaded plugin descriptions for the plugins command', async t => {
-  const directory = fixture({
-    'documented.js': `module.exports={name:'documented',version:'3.1.4',description:'Does useful work.'}`
-  });
-  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
-  const manager = new PluginManager({pluginsDir: directory, server: serverStub(), logger: {log() {}, error() {}}});
-  await manager.loadPlugins();
-  assert.deepEqual(manager.getPluginInfo(), [{name: 'documented', version: '3.1.4', description: 'Does useful work.'}]);
-  await manager.disableAll();
-});

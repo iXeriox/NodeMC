@@ -127,7 +127,6 @@ function terrainHeight(worldX, worldZ, seed) {
 module.exports = {
   name: GENERATOR_ID,
   version: '1.0.0',
-  description: 'Generates deterministic terrain, caves, buildings, and loot locations.',
 
   onEnable(api) {
     if (!api.server) {

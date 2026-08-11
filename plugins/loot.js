@@ -3,7 +3,6 @@
 module.exports = {
   name: 'loot',
   version: '1.0.0',
-  description: 'Awards useful survival gear from rare generated chests.',
   dependencies: ['connections', 'world'],
   onEnable(api) {
     const mcData = require('minecraft-data')(api.server.config.version);
