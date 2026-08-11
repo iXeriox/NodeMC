@@ -66,9 +66,12 @@ The initial world radius defaults to six chunks, larger than the player view dis
 When a player changes chunks, the world plugin generates an additional safety margin
 before sending cached packets, so clients do not reach a visible edge. Existing world
 seed, spawn, and time metadata are retained and newly generated terrain is added to the
-in-memory chunk map. Terrain includes caves, rare cabins, loot chests, and stationary
-vendor villagers. Passive mobs use low-frequency, terrain-aware wandering to keep the
-server lightweight.
+in-memory chunk map. The deterministic generator creates unbounded warped continents,
+rivers, mountain chains, ten climate-driven biomes, layered stone and ores, caves,
+vegetation, and rare structures. It samples climate once per column and only visits the
+vertical range that can contain blocks, keeping generation lightweight without a fixed
+island boundary. Rare cabins, loot chests, and stationary vendor villagers are included.
+Passive mobs use low-frequency, terrain-aware wandering to keep the server lightweight.
 
 Commands use the client Brigadier tree for tab completion. Close misspellings within
 two edits are also corrected automatically, such as `/statsu` resolving to `/status`.

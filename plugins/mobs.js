@@ -1,6 +1,7 @@
 'use strict';
 
 const {randomUUID} = require('node:crypto');
+const {angleToSignedByte} = require('../src/protocol');
 
 module.exports = {
   name: 'mobs',
@@ -114,7 +115,8 @@ function moveMob(mob, world, connections) {
   mob.x = nextX;
   mob.y = nextY;
   mob.z = nextZ;
-  const yaw = Math.floor((Math.atan2(-dx, dz) * 256 / (Math.PI * 2))) & 0xff;
+  // Entity teleport angles use a signed protocol byte, not an unsigned byte.
+  const yaw = angleToSignedByte(Math.atan2(-dx, dz));
   connections.broadcastPacket('entity_teleport', {entityId: mob.entityId, x: mob.x, y: mob.y, z: mob.z, yaw, pitch: 0, onGround: true});
 }
 
