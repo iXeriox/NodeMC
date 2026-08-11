@@ -53,6 +53,9 @@ Bundled plugins
 - `commands.js`: command registry and Brigadier tree sent to clients for completion.
 - `chat.js`: validation, broadcasts, and command routing.
 - `mobs.js`: bounded passive-mob spawning near online players.
+- `nodeAssistant.js`: dependency-free, rate-limited gameplay guidance when chat
+  messages address `Node` (for example, `Node, how do I build a house?`).
+- `scoreboard.js`: the NodeMC Nexus sidebar and lightweight coordinate/biome HUD.
 - `time.js`: configurable accelerated daylight (`timeScale`) with low-frequency updates.
 - `performance.js`: lightweight TPS, event-loop lag, memory, and busy-state monitoring
   through `/serverusage`.
@@ -71,7 +74,12 @@ rivers, mountain chains, ten climate-driven biomes, layered stone and ores, cave
 vegetation, and rare structures. It samples climate once per column and only visits the
 vertical range that can contain blocks, keeping generation lightweight without a fixed
 island boundary. Rare cabins, loot chests, and stationary vendor villagers are included.
-Passive mobs use low-frequency, terrain-aware wandering to keep the server lightweight.
+Passive mobs use low-frequency behavior decisions to idle, wander, form herds, avoid
+terrain hazards, and flee nearby players while remaining lightweight. Movement queues
+generate and encode terrain ahead of each player's direction of travel, coalescing rapid
+updates so exploration remains seamless without duplicating work. Players who fall into
+the void are restored to their last grounded position, and the on-screen NodeMC Nexus
+sidebar tracks location, biome, explored distance, online players, and rescues.
 
 Commands use the client Brigadier tree for tab completion. Close misspellings within
 two edits are also corrected automatically, such as `/statsu` resolving to `/status`.

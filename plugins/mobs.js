@@ -45,7 +45,7 @@ module.exports = {
         const localZ = ((z % 16) + 16) % 16;
         const y = chunk.surfaceHeights[localZ * 16 + localX] + 1;
         const type = mobTypes[Math.floor(Math.random() * mobTypes.length)];
-        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: type.id, name: type.name, x: x + 0.5, y, z: z + 0.5, target: null};
+        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: type.id, name: type.name, x: x + 0.5, y, z: z + 0.5, target: null, state: 'idle', thinkAt: 0};
         mobs.set(mob.entityId, mob);
         connections.broadcastPacket('spawn_entity', packet(mob));
         api.emit('mobSpawn', mob);
@@ -73,11 +73,20 @@ module.exports = {
       connections.sendMessage(player, 'Vendor: Take this food for your journey.', 'green');
     });
     api.registerEvent('tick', ({tick}) => {
-      if (tick % 10 === 0) {
+      if (tick % 20 === 0) {
+        const players = Array.from(api.server.players.values()).filter(player => player.spawned);
+        for (const mob of mobs.values()) chooseMobIntent(mob, mobs, players, tick);
+      }
+      if (tick % 5 === 0) {
         for (const mob of mobs.values()) moveMob(mob, world, connections);
       }
       if (tick % 200 !== 0 || api.server.players.size === 0) return;
       const players = Array.from(api.server.players.values()).filter(player => player.spawned);
+      for (const [id, mob] of mobs) {
+        if (mob.stationary || players.some(player => distance2D(mob, player.position) < 96)) continue;
+        mobs.delete(id);
+        connections.broadcastPacket('entity_destroy', {entityIds: [id]});
+      }
       if (players.length) spawnNear(players[Math.floor(Math.random() * players.length)]);
     });
     api.registerService('mobs', {list: () => Array.from(mobs.values()), get: id => mobs.get(id), spawnNear});
@@ -94,18 +103,19 @@ module.exports = {
 };
 
 function moveMob(mob, world, connections) {
-  if (mob.stationary) return;
+  if (mob.stationary || mob.state === 'idle') return;
   if (!mob.target || Math.hypot(mob.target.x - mob.x, mob.target.z - mob.z) < 1) {
-    const angle = Math.random() * Math.PI * 2;
-    const distance = 3 + Math.random() * 8;
-    mob.target = {x: mob.x + Math.cos(angle) * distance, z: mob.z + Math.sin(angle) * distance};
+    mob.state = 'idle';
+    mob.target = null;
+    return;
   }
   const dx = mob.target.x - mob.x;
   const dz = mob.target.z - mob.z;
   const length = Math.hypot(dx, dz);
   if (!length) return;
-  const nextX = mob.x + dx / length * 0.25;
-  const nextZ = mob.z + dz / length * 0.25;
+  const speed = mob.state === 'flee' ? 0.42 : mob.state === 'follow' ? 0.3 : 0.22;
+  const nextX = mob.x + dx / length * speed;
+  const nextZ = mob.z + dz / length * speed;
   const chunk = world.getChunk(Math.floor(nextX / 16), Math.floor(nextZ / 16));
   if (!chunk?.surfaceHeights) { mob.target = null; return; }
   const localX = ((Math.floor(nextX) % 16) + 16) % 16;
@@ -118,6 +128,51 @@ function moveMob(mob, world, connections) {
   // Entity teleport angles use a signed protocol byte, not an unsigned byte.
   const yaw = angleToSignedByte(Math.atan2(-dx, dz));
   connections.broadcastPacket('entity_teleport', {entityId: mob.entityId, x: mob.x, y: mob.y, z: mob.z, yaw, pitch: 0, onGround: true});
+}
+
+function chooseMobIntent(mob, mobs, players, tick) {
+  if (mob.stationary || tick < mob.thinkAt) return;
+  mob.thinkAt = tick + 20 + Math.floor(Math.random() * 40);
+  const nearestPlayer = players.reduce((nearest, player) => {
+    const distance = distance2D(mob, player.position);
+    return !nearest || distance < nearest.distance ? {player, distance} : nearest;
+  }, null);
+
+  // Passive animals notice and flee nearby players rather than wandering
+  // blindly through them.
+  if (nearestPlayer && nearestPlayer.distance < 5) {
+    const awayX = mob.x - nearestPlayer.player.position.x;
+    const awayZ = mob.z - nearestPlayer.player.position.z;
+    const length = Math.hypot(awayX, awayZ) || 1;
+    mob.state = 'flee';
+    mob.target = {x: mob.x + awayX / length * 9, z: mob.z + awayZ / length * 9};
+    return;
+  }
+
+  // Occasionally regroup with an animal of the same species. This creates
+  // convincing herds without pathfinding grids or per-tick searches.
+  if (Math.random() < 0.35) {
+    const herdMate = Array.from(mobs.values()).find(other => other !== mob && !other.stationary && other.type === mob.type && distance2D(mob, other) > 3 && distance2D(mob, other) < 14);
+    if (herdMate) {
+      mob.state = 'follow';
+      mob.target = {x: herdMate.x, z: herdMate.z};
+      return;
+    }
+  }
+
+  if (Math.random() < 0.25) {
+    mob.state = 'idle';
+    mob.target = null;
+    return;
+  }
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 3 + Math.random() * 9;
+  mob.state = 'wander';
+  mob.target = {x: mob.x + Math.cos(angle) * distance, z: mob.z + Math.sin(angle) * distance};
+}
+
+function distance2D(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
 function packet(mob) {

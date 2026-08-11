@@ -97,14 +97,40 @@ module.exports = {
       }
     };
     api.registerService('world', worldService);
-    let expansionQueue = Promise.resolve();
-    api.registerEvent('playerChunkChange', player => {
-      const centerX = Math.floor(player.position.x / 16);
-      const centerZ = Math.floor(player.position.z / 16);
+    // Keep only each player's newest requested center. A single lightweight
+    // worker prevents duplicate rendering when several movement packets arrive
+    // while an expansion is already in progress.
+    const pendingExpansions = new Map();
+    let expansionWorker = null;
+    const drainExpansions = async () => {
+      while (pendingExpansions.size) {
+        const [playerId, request] = pendingExpansions.entries().next().value;
+        pendingExpansions.delete(playerId);
+        const {player, centerX, centerZ} = request;
+        const chunks = await worldService.ensureArea(centerX, centerZ, request.radius);
+        if (!player.client.ended) api.emit('worldChunksReady', {player, chunks});
+      }
+    };
+    const startExpansionWorker = () => {
+      if (expansionWorker || !pendingExpansions.size) return;
+      expansionWorker = drainExpansions()
+        .catch(error => api.logger.error('World expansion failed:', error))
+        .finally(() => {
+          expansionWorker = null;
+          startExpansionWorker();
+        });
+    };
+    api.registerEvent('playerChunkChange', ({player, chunkX, chunkZ, directionX, directionZ}) => {
       const radius = api.server.config.viewDistance + api.server.config.worldExpansionMargin;
-      expansionQueue = expansionQueue.then(() => worldService.ensureArea(centerX, centerZ, radius))
-        .then(chunks => api.emit('worldChunksReady', {player, chunks}))
-        .catch(error => api.logger.error('World expansion failed:', error));
+      pendingExpansions.set(player.id, {
+        player,
+        // Generate slightly ahead of travel so the visible edge is ready
+        // before the player reaches it.
+        centerX: chunkX + directionX * api.server.config.worldExpansionMargin,
+        centerZ: chunkZ + directionZ * api.server.config.worldExpansionMargin,
+        radius
+      });
+      startExpansionWorker();
     });
     this.save = () => fs.writeFile(worldPath, JSON.stringify({
       name: world.name,
