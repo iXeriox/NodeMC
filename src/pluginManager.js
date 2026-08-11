@@ -143,6 +143,14 @@ class PluginManager {
       this.logger.log(`[PluginManager] Disabled ${plugin.id}`);
     }
   }
+
+  getPluginInfo() {
+    return Array.from(this.plugins.values(), plugin => ({
+      name: plugin.id,
+      version: plugin.module.version || 'unversioned',
+      description: plugin.module.description || 'No description provided.'
+    }));
+  }
 }
 
 module.exports = PluginManager;
