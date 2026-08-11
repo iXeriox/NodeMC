@@ -28,6 +28,27 @@ module.exports = {
       });
       api.getService('connections').sendMessage(player, `You found ${count} ${name.replaceAll('_', ' ')}!`, 'gold');
     });
+    const animalDrops = {
+      cow: [['beef', 2], ['leather', 1]],
+      pig: [['porkchop', 2]],
+      sheep: [['mutton', 2], ['white_wool', 1]],
+      chicken: [['chicken', 1], ['feather', 2]]
+    };
+    api.registerEvent('mobDeath', ({mob, killer}) => {
+      const drops = (animalDrops[mob.name] || []).filter(([name]) => mcData.itemsByName[name]);
+      // Roughly one in twenty animals adds a recognizable rare bonus.
+      if (Math.random() < 0.05 && mcData.itemsByName.emerald) drops.push(['emerald', 1]);
+      drops.forEach(([name, maximum], index) => {
+        const count = 1 + Math.floor(Math.random() * maximum);
+        const item = mcData.itemsByName[name];
+        killer.client.write('set_slot', {
+          windowId: 0, stateId: 0, slot: 36 + (index % 9),
+          item: {present: true, itemId: item.id, itemCount: count, nbtData: undefined}
+        });
+      });
+      if (drops.length) api.getService('connections').sendMessage(killer,
+        `Drops: ${drops.map(([name]) => name.replaceAll('_', ' ')).join(', ')}`, drops.some(([name]) => name === 'emerald') ? 'light_purple' : 'gray');
+    });
   }
 };
 

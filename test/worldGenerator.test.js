@@ -37,3 +37,10 @@ test('produces varied infinite terrain outside the former island boundary', () =
   assert.ok(heights.size > 10, `expected varied heights, received ${heights.size}`);
   assert.ok(biomes.size > 1, `expected varied biomes, received ${biomes.size}`);
 });
+
+test('renders a farm and farmer at world spawn', () => {
+  const chunk = loadGenerator().generateChunk({chunkX: 0, chunkZ: 0, seed: 42n});
+  const wheat = require('minecraft-data')('1.20.1').blocksByName.wheat.id;
+  assert.ok(chunk.vendors.some(vendor => vendor.profession === 'farmer'));
+  assert.ok(chunk.blocks.includes(wheat));
+});

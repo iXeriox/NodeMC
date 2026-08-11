@@ -56,7 +56,10 @@ function resolveBlocks(mcData) {
     cactus: get('cactus', 187), tallGrass: get('grass', get('air')), dandelion: get('dandelion', get('air')),
     coalOre: get('coal_ore', 105), ironOre: get('iron_ore', 106), goldOre: get('gold_ore', 107),
     cobblestone: get('cobblestone', 14), mossyCobblestone: get('mossy_cobblestone', get('cobblestone', 14)),
-    oakPlanks: get('oak_planks', 15), chest: get('chest', 244)
+    oakPlanks: get('oak_planks', 15), oakSlab: get('oak_slab', get('oak_planks', 15)),
+    oakFence: get('oak_fence', get('oak_log', 40)), glassPane: get('glass_pane', get('glass', 310)),
+    farmland: get('farmland', get('dirt', 10)), wheat: get('wheat', get('grass', 132)),
+    composter: get('composter', get('oak_planks', 15)), chest: get('chest', 244)
   });
 }
 
@@ -212,13 +215,22 @@ function addStructures(chunk, seed, blocks) {
   const roll = hash2D(chunk.x, chunk.z, seed + 18000);
   const column = 8 * CHUNK_WIDTH + 8;
   const baseY = chunk.surfaceHeights[column];
+  if (chunk.x === 0 && chunk.z === 0) addSpawnFarm(chunk, blocks);
   if (baseY <= SEA_LEVEL || baseY >= 105) return;
 
   if (roll > 0.987) {
+    // A proper timber cottage: stone foundation, framed walls, windows and a
+    // stepped roof read much more clearly than the former wooden cube.
     for (let x = 5; x <= 11; x++) for (let z = 5; z <= 11; z++) {
       setBlock(chunk, x, baseY, z, (x + z) % 5 === 0 ? blocks.mossyCobblestone : blocks.cobblestone);
-      for (let y = baseY + 1; y <= baseY + 4; y++) setBlock(chunk, x, y, z, x === 5 || x === 11 || z === 5 || z === 11 ? blocks.oakPlanks : blocks.air);
-      setBlock(chunk, x, baseY + 5, z, blocks.oakPlanks);
+      for (let y = baseY + 1; y <= baseY + 4; y++) {
+        const wall = x === 5 || x === 11 || z === 5 || z === 11;
+        const corner = (x === 5 || x === 11) && (z === 5 || z === 11);
+        const window = wall && y >= baseY + 2 && y <= baseY + 3 && ((x === 8 && z !== 11) || (z === 8 && x !== 8));
+        setBlock(chunk, x, y, z, !wall ? blocks.air : corner ? blocks.oakLog : window ? blocks.glassPane : blocks.oakPlanks);
+      }
+      const roofRise = Math.abs(x - 8);
+      if (z >= 4 && z <= 12) setBlock(chunk, x, baseY + 5 - roofRise, z, blocks.oakSlab);
     }
     setBlock(chunk, 8, baseY + 1, 11, blocks.air);
     setBlock(chunk, 8, baseY + 2, 11, blocks.air);
@@ -229,6 +241,24 @@ function addStructures(chunk, seed, blocks) {
     setBlock(chunk, 8, baseY + 1, 8, blocks.chest);
     chunk.lootChests.push({x: chunk.x * 16 + 8, y: baseY + 1, z: chunk.z * 16 + 8});
   }
+}
+
+function addSpawnFarm(chunk, blocks) {
+  // The spawn farm follows each terrain column, avoiding expensive flattening
+  // and remaining usable for every deterministic seed.
+  for (let x = 2; x <= 13; x++) for (let z = 2; z <= 5; z++) {
+    const y = chunk.surfaceHeights[z * 16 + x];
+    const edge = x === 2 || x === 13 || z === 2 || z === 5;
+    if (edge) setBlock(chunk, x, y + 1, z, blocks.oakFence);
+    else if (x === 8) setBlock(chunk, x, y, z, blocks.water);
+    else {
+      setBlock(chunk, x, y, z, blocks.farmland);
+      setBlock(chunk, x, y + 1, z, blocks.wheat);
+    }
+  }
+  const y = chunk.surfaceHeights[3 * 16 + 12];
+  setBlock(chunk, 12, y + 1, 3, blocks.composter);
+  chunk.vendors.push({x: 11.5, y: chunk.surfaceHeights[4 * 16 + 11] + 1, z: 4.5, profession: 'farmer'});
 }
 
 module.exports = {

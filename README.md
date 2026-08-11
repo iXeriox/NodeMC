@@ -62,6 +62,8 @@ Bundled plugins
 - `permissions.js`: persistent guest/builder/moderator/admin/owner access levels with
   `/permissions`, `/permission`, and `/op` controls. The first player becomes owner.
 - `loot.js`: rare generated chests that grant useful survival gear once.
+- `survival.js`: event-driven combat, animal health, and attack-aware NPC reactions.
+- `weather.js`: low-frequency vanilla rain and clear-weather transitions.
 
 World behavior
 --------------
@@ -73,11 +75,15 @@ in-memory chunk map. The deterministic generator creates unbounded warped contin
 rivers, mountain chains, ten climate-driven biomes, layered stone and ores, caves,
 vegetation, and rare structures. It samples climate once per column and only visits the
 vertical range that can contain blocks, keeping generation lightweight without a fixed
-island boundary. Rare cabins, loot chests, and stationary vendor villagers are included.
+island boundary. Improved timber cottages, uncommon visible loot chests, and vendor
+villagers are included. World spawn also contains a rendered crop farm, composter, and farmer.
 Passive mobs use low-frequency behavior decisions to idle, wander, form herds, avoid
-terrain hazards, and flee nearby players while remaining lightweight. Movement queues
+terrain hazards, and flee nearby players or attackers while remaining lightweight.
+Killed animals provide their common resources with a small rare-drop chance. Movement queues
 generate and encode terrain ahead of each player's direction of travel, coalescing rapid
-updates so exploration remains seamless without duplicating work. Players who fall into
+updates so exploration remains seamless without duplicating work. If generation ever
+loses the race, a temporary movement barrier holds the player on loaded ground while
+the missing area is prepared. Players who fall into
 the void are restored to their last grounded position, and the on-screen NodeMC Nexus
 sidebar tracks location, biome, explored distance, online players, and rescues.
 
