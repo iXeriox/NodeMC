@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const events = require('./events');
+const chalk = require('chalk');
 
 class PluginManager {
   constructor({pluginsDir = path.join(__dirname, '..', 'plugins'), logger = console, server = null} = {}) {
@@ -37,7 +38,10 @@ class PluginManager {
       id,
       events,
       server: this.server,
-      logger: { log: (...args) => this.logger.log(`[${id}]`, ...args), error: (...args) => this.logger.error(`[${id}]`, ...args) },
+      logger: {
+        log: (...args) => this.logger.log(chalk.cyan(`[${new Date().toLocaleTimeString()}]`), chalk.green(`[${id}]`), ...args),
+        error: (...args) => this.logger.error(chalk.cyan(`[${new Date().toLocaleTimeString()}]`), chalk.red(`[${id}]`), chalk.red('ERROR:'), ...args)
+      },
       registerEvent(eventName, handler) {
         events.on(eventName, handler);
         const p = self.plugins.get(id);
