@@ -1,0 +1,12 @@
+{
+  "name": "nodemc",
+  "version": "0.1.0",
+  "description": "Modular Node-based Minecraft-like server with plugin support",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": ["minecraft","server","plugins","node"],
+  "license": "MIT"
+}
