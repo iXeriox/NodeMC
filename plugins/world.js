@@ -42,6 +42,7 @@ module.exports = {
     api.server.world = world;
 
     const radius = Math.max(api.server.config.viewDistance, api.server.config.worldRenderDistance);
+    const radius = api.server.config.viewDistance;
     const coordinates = [];
     for (let x = -radius; x <= radius; x++) {
       for (let z = -radius; z <= radius; z++) coordinates.push([x, z]);
@@ -108,6 +109,10 @@ module.exports = {
     });
     this.save = () => fs.writeFile(worldPath, JSON.stringify({
       ...(saved || {}),
+      sendChunk: (client, chunk) => client.write('map_chunk', chunk.packet)
+    };
+    api.registerService('world', worldService);
+    this.save = () => fs.writeFile(worldPath, JSON.stringify({
       name: world.name,
       seed: world.seed.toString(),
       generator: world.generator,

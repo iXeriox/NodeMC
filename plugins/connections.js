@@ -51,6 +51,7 @@ module.exports = {
         player.loadedChunks.add(key);
       }
     });
+    api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage});
     api.registerEvent('serverReady', () => {
       networkServer = mc.createServer({
         host: api.server.config.host,
@@ -69,6 +70,12 @@ module.exports = {
       networkServer.on('listening', () => api.logger.log(`Accepting players on ${api.server.config.host}:${api.server.config.port}`));
       let tickCount = 0;
       tickTimer = setInterval(() => api.emit('tick', {tick: ++tickCount, now: Date.now()}), 50);
+      tickTimer = setInterval(() => {
+        const world = worldService.world;
+        world.worldTime++;
+        api.emit('tick', {time: world.worldTime});
+        broadcastPacket('time_update', {age: [0, world.worldTime], time: [0, world.worldTime % 24000]});
+      }, 50);
     });
 
     this.close = () => {
@@ -106,6 +113,7 @@ function connect(client, api, worldService, commands, broadcastMessage) {
     gamemode: 0,
     loadedChunks: new Set(),
     lastChunk: null
+    gamemode: 1
   };
   api.server.players.set(player.id, player);
 
@@ -114,6 +122,7 @@ function connect(client, api, worldService, commands, broadcastMessage) {
     updatePosition(player, data, metadata.name);
     if (metadata.name === 'teleport_confirm' && data.teleportId === 1 && !player.spawned) {
       client.write('abilities', {flags: 0, flyingSpeed: 0.05, walkingSpeed: 0.1});
+      client.write('abilities', {flags: 0x02 | 0x04, flyingSpeed: 0.05, walkingSpeed: 0.1});
       commands.sendTree(client);
       client.write('held_item_slot', {slot: 0});
       player.spawned = true;
@@ -164,6 +173,7 @@ function connect(client, api, worldService, commands, broadcastMessage) {
         chunks.push(chunk);
         player.loadedChunks.add(`${x},${z}`);
       }
+      if (chunk) chunks.push(chunk);
     }
   }
   sendChunkBatches(client, chunks, worldService);
