@@ -198,7 +198,21 @@ function sendChunkBatches(client, chunks, worldService) {
 function updatePosition(player, data, packetName, api, display) {
   if (!['position', 'position_look', 'look'].includes(packetName)) return;
   const previous = {...player.position};
-  player.position = {x: data.x ?? player.position.x, y: data.y ?? player.position.y, z: data.z ?? player.position.z};
+  const proposed = {x: data.x ?? player.position.x, y: data.y ?? player.position.y, z: data.z ?? player.position.z};
+  const world = api?.getService?.('world');
+  const proposedChunkX = Math.floor(proposed.x / 16);
+  const proposedChunkZ = Math.floor(proposed.z / 16);
+  if (player.spawned && world && !world.getChunk(proposedChunkX, proposedChunkZ)) {
+    // A short server-side safety barrier is cheaper and safer than allowing a
+    // client into empty space. It disappears naturally as soon as generation
+    // completes, and normal movement packets then proceed unchanged.
+    player.client.write('position', {x: previous.x, y: previous.y, z: previous.z, yaw: player.rotation.yaw, pitch: player.rotation.pitch, flags: 0, teleportId: ++player.teleportId});
+    api.emit('playerChunkChange', {player, chunkX: proposedChunkX, chunkZ: proposedChunkZ,
+      directionX: Math.sign(proposed.x - previous.x), directionZ: Math.sign(proposed.z - previous.z)});
+    display?.sendActionBar(player, 'Preparing terrain ahead…', 'yellow');
+    return;
+  }
+  player.position = proposed;
   player.rotation = {yaw: data.yaw ?? player.rotation.yaw, pitch: data.pitch ?? player.rotation.pitch};
   const travelled = Math.hypot(player.position.x - previous.x, player.position.z - previous.z);
   if (travelled < 32) player.stats.distance += travelled;
@@ -215,6 +229,20 @@ function updatePosition(player, data, packetName, api, display) {
     const [chunkX, chunkZ] = chunk.split(',').map(Number);
     const [previousX, previousZ] = previousChunk ? previousChunk.split(',').map(Number) : [chunkX, chunkZ];
     require('../src/events').emit('playerChunkChange', {player, chunkX, chunkZ, directionX: Math.sign(chunkX - previousX), directionZ: Math.sign(chunkZ - previousZ)});
+  }
+  // Ask for terrain before the chunk boundary is crossed. Requests are keyed
+  // and coalesced by the world worker, keeping this effectively free while the
+  // player remains in the middle of a chunk.
+  const localX = ((player.position.x % 16) + 16) % 16;
+  const localZ = ((player.position.z % 16) + 16) % 16;
+  const margin = Math.min(6, Math.max(2, api?.server?.config?.worldExpansionMargin * 2 || 4));
+  const directionX = localX > 16 - margin ? 1 : localX < margin ? -1 : 0;
+  const directionZ = localZ > 16 - margin ? 1 : localZ < margin ? -1 : 0;
+  const prefetchKey = `${chunk}:${directionX},${directionZ}`;
+  if ((directionX || directionZ) && player.lastPrefetch !== prefetchKey) {
+    player.lastPrefetch = prefetchKey;
+    const [chunkX, chunkZ] = chunk.split(',').map(Number);
+    api.emit('playerChunkChange', {player, chunkX, chunkZ, directionX, directionZ});
   }
 }
 

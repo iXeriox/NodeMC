@@ -27,7 +27,7 @@ module.exports = {
         const key = `${marker.x},${marker.y},${marker.z}`;
         if (vendorLocations.has(key)) continue;
         vendorLocations.add(key);
-        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: vendorType.id, name: 'vendor', ...marker, target: null, stationary: true};
+        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: vendorType.id, name: marker.profession || 'vendor', ...marker, target: null, stationary: true, health: 20};
         mobs.set(mob.entityId, mob);
         connections.broadcastPacket('spawn_entity', packet(mob));
       }
@@ -45,7 +45,7 @@ module.exports = {
         const localZ = ((z % 16) + 16) % 16;
         const y = chunk.surfaceHeights[localZ * 16 + localX] + 1;
         const type = mobTypes[Math.floor(Math.random() * mobTypes.length)];
-        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: type.id, name: type.name, x: x + 0.5, y, z: z + 0.5, target: null, state: 'idle', thinkAt: 0};
+        const mob = {entityId: nextEntityId++, uuid: randomUUID(), type: type.id, name: type.name, x: x + 0.5, y, z: z + 0.5, target: null, state: 'idle', thinkAt: 0, health: type.name === 'chicken' ? 4 : type.name === 'sheep' ? 8 : 10};
         mobs.set(mob.entityId, mob);
         connections.broadcastPacket('spawn_entity', packet(mob));
         api.emit('mobSpawn', mob);
@@ -89,7 +89,30 @@ module.exports = {
       }
       if (players.length) spawnNear(players[Math.floor(Math.random() * players.length)]);
     });
-    api.registerService('mobs', {list: () => Array.from(mobs.values()), get: id => mobs.get(id), spawnNear});
+    const damage = (id, attacker, amount = 4) => {
+      const mob = mobs.get(id);
+      if (!mob) return false;
+      const awayX = mob.x - attacker.position.x;
+      const awayZ = mob.z - attacker.position.z;
+      const length = Math.hypot(awayX, awayZ) || 1;
+      // Villagers are protected but remember the attack and flee. Animals flee
+      // while hurt and produce loot only when their health reaches zero.
+      mob.stationary = false;
+      mob.state = 'flee';
+      mob.thinkAt = Number.MAX_SAFE_INTEGER;
+      mob.target = {x: mob.x + awayX / length * 14, z: mob.z + awayZ / length * 14};
+      if (mob.type === vendorType?.id) {
+        connections.sendMessage(attacker, `${mob.name === 'farmer' ? 'Farmer' : 'Vendor'}: Help! Stay away from me!`, 'red');
+        return true;
+      }
+      mob.health -= amount;
+      if (mob.health > 0) return true;
+      mobs.delete(id);
+      connections.broadcastPacket('entity_destroy', {entityIds: [id]});
+      api.emit('mobDeath', {mob, killer: attacker});
+      return true;
+    };
+    api.registerService('mobs', {list: () => Array.from(mobs.values()), get: id => mobs.get(id), spawnNear, damage});
     this.removeAll = () => {
       if (mobs.size) connections.broadcastPacket('entity_destroy', {entityIds: Array.from(mobs.keys())});
       mobs.clear();
