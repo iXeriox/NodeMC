@@ -23,11 +23,34 @@ module.exports = {
       if (!player?.client || player.client.ended) return;
       player.client.write('system_chat', {content: JSON.stringify({text: message, color}), isActionBar: false});
     };
+    const sendComponent = (player, component) => {
+      if (!player?.client || player.client.ended) return;
+      player.client.write('system_chat', {content: JSON.stringify(component), isActionBar: false});
+    };
     const broadcastMessage = (message, color = 'white') => {
       api.emit('chatBroadcast', {message, color, timestamp: Date.now()});
       for (const player of api.server.players.values()) sendMessage(player, message, color);
     };
 
+    api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage, sendComponent});
+    api.registerEvent('worldChunksReady', ({player, chunks}) => {
+      if (!player.spawned || player.client.ended) return;
+      const centerX = Math.floor(player.position.x / 16);
+      const centerZ = Math.floor(player.position.z / 16);
+      const keepRadius = api.server.config.viewDistance + api.server.config.worldExpansionMargin;
+      for (const key of Array.from(player.loadedChunks)) {
+        const [x, z] = key.split(',').map(Number);
+        if (Math.abs(x - centerX) <= keepRadius && Math.abs(z - centerZ) <= keepRadius) continue;
+        player.client.write('unload_chunk', {chunkX: x, chunkZ: z});
+        player.loadedChunks.delete(key);
+      }
+      for (const chunk of chunks) {
+        const key = `${chunk.x},${chunk.z}`;
+        if (player.loadedChunks.has(key)) continue;
+        worldService.sendChunk(player.client, chunk);
+        player.loadedChunks.add(key);
+      }
+    });
     api.registerService('connections', {broadcastPacket, broadcastMessage, sendMessage});
     api.registerEvent('serverReady', () => {
       networkServer = mc.createServer({
@@ -45,6 +68,8 @@ module.exports = {
       networkServer.on('login', client => connect(client, api, worldService, commands, broadcastMessage));
       networkServer.on('error', error => api.logger.error('Minecraft listener error:', error));
       networkServer.on('listening', () => api.logger.log(`Accepting players on ${api.server.config.host}:${api.server.config.port}`));
+      let tickCount = 0;
+      tickTimer = setInterval(() => api.emit('tick', {tick: ++tickCount, now: Date.now()}), 50);
       tickTimer = setInterval(() => {
         const world = worldService.world;
         world.worldTime++;
@@ -85,6 +110,9 @@ function connect(client, api, worldService, commands, broadcastMessage) {
     rotation: {yaw: 0, pitch: 0},
     health: 20,
     food: 20,
+    gamemode: 0,
+    loadedChunks: new Set(),
+    lastChunk: null
     gamemode: 1
   };
   api.server.players.set(player.id, player);
@@ -93,6 +121,7 @@ function connect(client, api, worldService, commands, broadcastMessage) {
     api.emit('packetReceived', {player, packetName: metadata.name, state: metadata.state, data});
     updatePosition(player, data, metadata.name);
     if (metadata.name === 'teleport_confirm' && data.teleportId === 1 && !player.spawned) {
+      client.write('abilities', {flags: 0, flyingSpeed: 0.05, walkingSpeed: 0.1});
       client.write('abilities', {flags: 0x02 | 0x04, flyingSpeed: 0.05, walkingSpeed: 0.1});
       commands.sendTree(client);
       client.write('held_item_slot', {slot: 0});
@@ -140,6 +169,10 @@ function connect(client, api, worldService, commands, broadcastMessage) {
   for (let x = centerX - radius; x <= centerX + radius; x++) {
     for (let z = centerZ - radius; z <= centerZ + radius; z++) {
       const chunk = worldService.getChunk(x, z);
+      if (chunk) {
+        chunks.push(chunk);
+        player.loadedChunks.add(`${x},${z}`);
+      }
       if (chunk) chunks.push(chunk);
     }
   }
@@ -161,4 +194,9 @@ function updatePosition(player, data, packetName) {
   if (!['position', 'position_look', 'look'].includes(packetName)) return;
   player.position = {x: data.x ?? player.position.x, y: data.y ?? player.position.y, z: data.z ?? player.position.z};
   player.rotation = {yaw: data.yaw ?? player.rotation.yaw, pitch: data.pitch ?? player.rotation.pitch};
+  const chunk = `${Math.floor(player.position.x / 16)},${Math.floor(player.position.z / 16)}`;
+  if (chunk !== player.lastChunk) {
+    player.lastChunk = chunk;
+    require('../src/events').emit('playerChunkChange', player);
+  }
 }

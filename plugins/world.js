@@ -41,6 +41,7 @@ module.exports = {
     };
     api.server.world = world;
 
+    const radius = Math.max(api.server.config.viewDistance, api.server.config.worldRenderDistance);
     const radius = api.server.config.viewDistance;
     const coordinates = [];
     for (let x = -radius; x <= radius; x++) {
@@ -77,6 +78,37 @@ module.exports = {
     const worldService = {
       world,
       getChunk: (x, z) => world.chunks.get(`${x},${z}`),
+      sendChunk: (client, chunk) => client.write('map_chunk', chunk.packet),
+      async ensureArea(centerX, centerZ, areaRadius) {
+        const available = [];
+        for (let x = centerX - areaRadius; x <= centerX + areaRadius; x++) {
+          for (let z = centerZ - areaRadius; z <= centerZ + areaRadius; z++) {
+            const key = `${x},${z}`;
+            let chunk = world.chunks.get(key);
+            if (!chunk) {
+              chunk = await generator.generateChunk({chunkX: x, chunkZ: z, seed: world.seed, world, server: api.server});
+              chunk.packet = renderChunk(chunk, api.server.config.version);
+              world.chunks.set(key, chunk);
+              if (available.length % 2 === 0) await nextTurn();
+            }
+            available.push(chunk);
+          }
+        }
+        return available;
+      }
+    };
+    api.registerService('world', worldService);
+    let expansionQueue = Promise.resolve();
+    api.registerEvent('playerChunkChange', player => {
+      const centerX = Math.floor(player.position.x / 16);
+      const centerZ = Math.floor(player.position.z / 16);
+      const radius = api.server.config.viewDistance + api.server.config.worldExpansionMargin;
+      expansionQueue = expansionQueue.then(() => worldService.ensureArea(centerX, centerZ, radius))
+        .then(chunks => api.emit('worldChunksReady', {player, chunks}))
+        .catch(error => api.logger.error('World expansion failed:', error));
+    });
+    this.save = () => fs.writeFile(worldPath, JSON.stringify({
+      ...(saved || {}),
       sendChunk: (client, chunk) => client.write('map_chunk', chunk.packet)
     };
     api.registerService('world', worldService);

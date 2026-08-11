@@ -49,6 +49,25 @@ Bundled plugins
 - `commands.js`: command registry and Brigadier tree sent to clients for completion.
 - `chat.js`: validation, broadcasts, and command routing.
 - `mobs.js`: bounded passive-mob spawning near online players.
+- `time.js`: configurable accelerated daylight (`timeScale`) with low-frequency updates.
+- `performance.js`: lightweight TPS, event-loop lag, memory, and busy-state monitoring
+  through `/serverusage`.
+- `permissions.js`: persistent guest/builder/moderator/admin/owner access levels with
+  `/permissions`, `/permission`, and `/op` controls. The first player becomes owner.
+- `loot.js`: rare generated chests that grant useful survival gear once.
+
+World behavior
+--------------
+The initial world radius defaults to six chunks, larger than the player view distance.
+When a player changes chunks, the world plugin generates an additional safety margin
+before sending cached packets, so clients do not reach a visible edge. Existing world
+seed, spawn, and time metadata are retained and newly generated terrain is added to the
+in-memory chunk map. Terrain includes caves, rare cabins, loot chests, and stationary
+vendor villagers. Passive mobs use low-frequency, terrain-aware wandering to keep the
+server lightweight.
+
+Commands use the client Brigadier tree for tab completion. Close misspellings within
+two edits are also corrected automatically, such as `/statsu` resolving to `/status`.
 
 Contributing
 ------------

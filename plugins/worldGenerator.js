@@ -68,7 +68,10 @@ function blockIds(mcData) {
     birchLeaves: id('birch_leaves', 65),
     cactus: id('cactus', 187),
     coalOre: id('coal_ore', 105),
-    ironOre: id('iron_ore', 106)
+    ironOre: id('iron_ore', 106),
+    cobblestone: id('cobblestone', 14),
+    oakPlanks: id('oak_planks', 15),
+    chest: id('chest', 244)
   };
 }
 
@@ -165,6 +168,8 @@ module.exports = {
             const surface = terrain.height;
             const underwater = surface < SEA_LEVEL;
             const soilDepth = 3 + Math.floor(hash2D(worldX, worldZ, numericSeed + 8000) * 3);
+            const caveHorizontal = Math.sin(worldX * 0.11 + numericSeed * 0.001) +
+              Math.sin(worldZ * 0.13 - numericSeed * 0.0013);
 
             chunk.surfaceHeights[column] = surface;
             chunk.biomes[column] = biome;
@@ -180,6 +185,13 @@ module.exports = {
               } else if (y > surface) {
                 chunk.blocks[index] = blocks.air;
               } else if (y < surface - soilDepth) {
+                // Three cheap intersecting waves create winding chambers
+                // without running expensive octave noise for every block.
+                const cave = caveHorizontal + Math.sin(y * 0.17 + (worldX + worldZ) * 0.025);
+                if (y > 7 && y < surface - 5 && cave > 2.62) {
+                  chunk.blocks[index] = blocks.air;
+                  continue;
+                }
                 let block = blocks.stone;
                 const oreRoll = hash2D(worldX * 31 + y, worldZ * 17 - y, numericSeed + 9000);
                 if (y < 54 && oreRoll > 0.993) block = blocks.ironOre;
@@ -251,6 +263,33 @@ module.exports = {
 
             chunk.maxY = Math.max(chunk.maxY, surface + trunkHeight + 1);
           }
+        }
+
+        chunk.lootChests = [];
+        chunk.vendors = [];
+        const structureRoll = hash2D(chunkX, chunkZ, numericSeed + 18000);
+        const centerColumn = 8 * 16 + 8;
+        const baseY = chunk.surfaceHeights[centerColumn];
+        if (structureRoll > 0.985 && baseY > SEA_LEVEL && baseY < 105) {
+          for (let x = 5; x <= 11; x++) {
+            for (let z = 5; z <= 11; z++) {
+              chunk.blocks[baseY * 256 + z * 16 + x] = blocks.cobblestone;
+              for (let y = baseY + 1; y <= baseY + 4; y++) {
+                const wall = x === 5 || x === 11 || z === 5 || z === 11;
+                chunk.blocks[y * 256 + z * 16 + x] = wall ? blocks.oakPlanks : blocks.air;
+              }
+              chunk.blocks[(baseY + 5) * 256 + z * 16 + x] = blocks.oakPlanks;
+            }
+          }
+          chunk.blocks[(baseY + 1) * 256 + 11 * 16 + 8] = blocks.air;
+          chunk.blocks[(baseY + 2) * 256 + 11 * 16 + 8] = blocks.air;
+          chunk.blocks[(baseY + 1) * 256 + 7 * 16 + 7] = blocks.chest;
+          chunk.lootChests.push({x: chunkX * 16 + 7, y: baseY + 1, z: chunkZ * 16 + 7});
+          chunk.vendors.push({x: chunkX * 16 + 8.5, y: baseY + 1, z: chunkZ * 16 + 8.5});
+          chunk.maxY = Math.max(chunk.maxY, baseY + 5);
+        } else if (structureRoll > 0.94 && baseY > SEA_LEVEL) {
+          chunk.blocks[(baseY + 1) * 256 + centerColumn] = blocks.chest;
+          chunk.lootChests.push({x: chunkX * 16 + 8, y: baseY + 1, z: chunkZ * 16 + 8});
         }
 
         return chunk;

@@ -17,6 +17,25 @@ module.exports = {
       list: () => Array.from(commands.values()),
       execute(player, input) {
         const [name, ...args] = input.trim().replace(/^\//, '').split(/\s+/);
+        let command = commands.get(name.toLowerCase()) || Array.from(commands.values())
+          .find(candidate => candidate.aliases.includes(name.toLowerCase()));
+        if (!command) {
+          const suggestion = nearest(name.toLowerCase(), Array.from(commands.keys()));
+          if (suggestion && distance(name.toLowerCase(), suggestion) <= 2) command = commands.get(suggestion);
+        }
+        if (!command || typeof command.executor !== 'function') return false;
+        const permissions = api.getService('permissions');
+        if (command.permission && !permissions?.has(player, command.permission)) {
+          api.getService('connections')?.sendMessage(player, 'You do not have permission to use that command.', 'red');
+          return true;
+        }
+        const result = command.executor({player, args, server: api.server, reply: (message, color) => {
+          api.getService('connections')?.sendMessage(player, message, color);
+        }});
+        if (result?.catch) result.catch(error => {
+          api.logger.error(`Command /${command.name} failed:`, error);
+          api.getService('connections')?.sendMessage(player, 'Command failed.', 'red');
+        });
         const command = commands.get(name.toLowerCase()) || Array.from(commands.values())
           .find(candidate => candidate.aliases.includes(name.toLowerCase()));
         if (!command || typeof command.executor !== 'function') return false;
@@ -68,4 +87,22 @@ function addCommand(nodes, command) {
     };
     nodes.push(parent);
   }
+}
+
+function nearest(value, choices) {
+  return choices.reduce((best, choice) => !best || distance(value, choice) < distance(value, best) ? choice : best, null);
+}
+
+function distance(a, b) {
+  const row = Array.from({length: b.length + 1}, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = old;
+    }
+  }
+  return row[b.length];
 }

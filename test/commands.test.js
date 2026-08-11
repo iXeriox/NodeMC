@@ -30,3 +30,19 @@ test('publishes executable command nodes for client completion', () => {
   assert.equal(argument.parser, 'brigadier:string');
   assert.equal(argument.flags & 0x04, 0x04);
 });
+
+test('auto-corrects a close command name', () => {
+  const services = new Map();
+  let executed = false;
+  const api = {
+    server: {players: new Map()},
+    registerService(name, service) { services.set(name, service); },
+    getService(name) { return services.get(name); },
+    registerCommand(name, options) { services.get('commands').register(name, options); },
+    logger: {log() {}}
+  };
+  plugin.onEnable(api);
+  services.get('commands').register('status', {executor() { executed = true; }});
+  assert.equal(services.get('commands').execute({uuid: 'test'}, '/statsu'), true);
+  assert.equal(executed, true);
+});

@@ -21,6 +21,9 @@ class Server {
       maxPlayers: 20,
       motd: 'A NodeMC Server',
       viewDistance: 4,
+      worldRenderDistance: 6,
+      worldExpansionMargin: 2,
+      timeScale: 2,
       version: '1.20.1',
       worldName: 'world',
       ...options
