@@ -14,6 +14,7 @@ class Server {
     this.ready = false;
     this.players = new Map();
     this.world = null;
+    this.logger = options.logger || console;
     this.config = {
       host: '0.0.0.0',
       port: 25565,
@@ -28,6 +29,7 @@ class Server {
       worldName: 'world',
       ...options
     };
+    delete this.config.logger;
   }
 
   async start() {
@@ -39,7 +41,7 @@ class Server {
       await this.pluginManager.loadPlugins();
       this.ready = true;
       events.emit('serverReady', this);
-      console.log(`NodeMC ${this.config.version} is ready`);
+      (this.logger.success || this.logger.log).call(this.logger, `Server ready on ${this.config.host}:${this.config.port} (Minecraft ${this.config.version})`);
     } catch (error) {
       this.running = false;
       await this.pluginManager.disableAll();

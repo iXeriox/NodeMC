@@ -1,305 +1,266 @@
 'use strict';
 
 const GENERATOR_ID = 'realistic-world';
+const WORLD_HEIGHT = 256;
 const SEA_LEVEL = 62;
-const ISLAND_RADIUS = 180;
-const ISLAND_CENTER_X = 0;
-const ISLAND_CENTER_Z = 0;
+const CHUNK_WIDTH = 16;
+const CHUNK_AREA = CHUNK_WIDTH * CHUNK_WIDTH;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const lerp = (a, b, t) => a + (b - a) * t;
-const fade = t => t * t * (3 - 2 * t);
-const smoothstep = (a, b, value) => {
-  const t = clamp((value - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-};
+const lerp = (a, b, amount) => a + (b - a) * amount;
+const fade = value => value * value * (3 - 2 * value);
+const smoothstep = (from, to, value) => fade(clamp((value - from) / (to - from), 0, 1));
 
 function hash2D(x, z, seed) {
-  let h = Math.imul(x | 0, 0x1f123bb5) ^ Math.imul(z | 0, 0x5f356495) ^ seed;
-  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
-  return ((h ^ (h >>> 15)) >>> 0) / 0xffffffff;
+  let hash = Math.imul(x | 0, 0x1f123bb5) ^ Math.imul(z | 0, 0x5f356495) ^ seed;
+  hash = Math.imul(hash ^ (hash >>> 15), 0x2c1b3c6d);
+  hash = Math.imul(hash ^ (hash >>> 12), 0x297a2d39);
+  return ((hash ^ (hash >>> 15)) >>> 0) / 0xffffffff;
 }
 
-function valueNoise2D(x, z, seed) {
+function valueNoise(x, z, seed) {
   const x0 = Math.floor(x);
   const z0 = Math.floor(z);
   const tx = fade(x - x0);
   const tz = fade(z - z0);
-  const a = hash2D(x0, z0, seed) * 2 - 1;
-  const b = hash2D(x0 + 1, z0, seed) * 2 - 1;
-  const c = hash2D(x0, z0 + 1, seed) * 2 - 1;
-  const d = hash2D(x0 + 1, z0 + 1, seed) * 2 - 1;
-  return lerp(lerp(a, b, tx), lerp(c, d, tx), tz);
+  const north = lerp(hash2D(x0, z0, seed), hash2D(x0 + 1, z0, seed), tx);
+  const south = lerp(hash2D(x0, z0 + 1, seed), hash2D(x0 + 1, z0 + 1, seed), tx);
+  return lerp(north, south, tz) * 2 - 1;
 }
 
-function fbm(x, z, seed, octaves = 5) {
-  let value = 0;
+function fbm(x, z, seed, octaves) {
+  let result = 0;
   let amplitude = 0.5;
-  let frequency = 1;
-  let normalizer = 0;
-
+  let scale = 1;
+  let weight = 0;
   for (let octave = 0; octave < octaves; octave++) {
-    value += valueNoise2D(x * frequency, z * frequency, seed + octave * 1013) * amplitude;
-    normalizer += amplitude;
-    frequency *= 2;
+    result += valueNoise(x * scale, z * scale, seed + octave * 1013) * amplitude;
+    weight += amplitude;
+    scale *= 2;
     amplitude *= 0.5;
   }
-
-  return value / normalizer;
+  return result / weight;
 }
 
-function blockIds(mcData) {
-  const id = (name, fallback) => mcData.blocksByName[name]?.id ?? fallback;
-  return {
-    air: id('air', 0),
-    stone: id('stone', 1),
-    bedrock: id('bedrock', 7),
-    dirt: id('dirt', 10),
-    grass: id('grass_block', 9),
-    sand: id('sand', 138),
-    sandstone: id('sandstone', 139),
-    gravel: id('gravel', 137),
-    water: id('water', 32),
-    snow: id('snow_block', 112),
-    oakLog: id('oak_log', 40),
-    oakLeaves: id('oak_leaves', 64),
-    birchLog: id('birch_log', 41),
-    birchLeaves: id('birch_leaves', 65),
-    cactus: id('cactus', 187),
-    coalOre: id('coal_ore', 105),
-    ironOre: id('iron_ore', 106),
-    cobblestone: id('cobblestone', 14),
-    oakPlanks: id('oak_planks', 15),
-    chest: id('chest', 244)
-  };
+function resolveBlocks(mcData) {
+  const get = (name, fallback = 0) => mcData.blocksByName[name]?.id ?? fallback;
+  return Object.freeze({
+    air: get('air'), stone: get('stone', 1), bedrock: get('bedrock', 7),
+    deepslate: get('deepslate', get('stone', 1)), dirt: get('dirt', 10),
+    grass: get('grass_block', 9), sand: get('sand', 138), sandstone: get('sandstone', 139),
+    gravel: get('gravel', 137), clay: get('clay', get('dirt', 10)), water: get('water', 32),
+    snow: get('snow_block', 112), stoneTop: get('stone', 1),
+    oakLog: get('oak_log', 40), oakLeaves: get('oak_leaves', 64),
+    birchLog: get('birch_log', 41), birchLeaves: get('birch_leaves', 65),
+    spruceLog: get('spruce_log', get('oak_log', 40)), spruceLeaves: get('spruce_leaves', get('oak_leaves', 64)),
+    cactus: get('cactus', 187), tallGrass: get('grass', get('air')), dandelion: get('dandelion', get('air')),
+    coalOre: get('coal_ore', 105), ironOre: get('iron_ore', 106), goldOre: get('gold_ore', 107),
+    cobblestone: get('cobblestone', 14), mossyCobblestone: get('mossy_cobblestone', get('cobblestone', 14)),
+    oakPlanks: get('oak_planks', 15), chest: get('chest', 244)
+  });
 }
 
-function selectBiome(worldX, worldZ, seed, height, continentalness) {
-  const temperature = fbm(worldX / 900, worldZ / 900, seed + 4000, 4);
-  const moisture = fbm(worldX / 750, worldZ / 750, seed + 5000, 4);
+/** Sample large-scale climate once per column. The generator is deliberately
+ * two-dimensional; caves use cheap analytic waves so generation remains fast. */
+function sampleTerrain(worldX, worldZ, seed) {
+  const warpX = valueNoise(worldX / 700, worldZ / 700, seed + 11) * 90;
+  const warpZ = valueNoise(worldX / 700, worldZ / 700, seed + 29) * 90;
+  const x = worldX + warpX;
+  const z = worldZ + warpZ;
+  let continental = fbm(x / 1050, z / 1050, seed + 1000, 5);
+  const erosion = fbm(x / 430, z / 430, seed + 2000, 4);
+  const ridge = 1 - Math.abs(fbm(x / 620, z / 620, seed + 3000, 4));
+  const detail = fbm(x / 115, z / 115, seed + 4000, 3);
 
-  if (height >= 112) return 'snowy_peaks';
-  if (continentalness < -0.15) return 'ocean';
-  if (temperature > 0.32 && moisture < -0.12) return 'desert';
-  if (moisture > 0.22) return 'forest';
-  if (temperature < -0.28) return 'taiga';
-  return 'plains';
+  // Guarantee a pleasant, dry spawn without turning the rest of the map into
+  // a finite island. Beyond spawn, continents continue in every direction.
+  const spawnInfluence = 1 - smoothstep(24, 150, Math.hypot(worldX, worldZ));
+  continental = Math.max(continental, spawnInfluence * 0.32);
+  let height = SEA_LEVEL + continental * 31 + detail * 5;
+  const mountain = smoothstep(0.55, 0.88, ridge) * smoothstep(0.02, 0.38, continental);
+  height += mountain * mountain * (42 - erosion * 11);
+
+  const riverNoise = Math.abs(fbm(x / 370, z / 370, seed + 5000, 3));
+  const river = (1 - smoothstep(0.012, 0.052, riverNoise)) * smoothstep(-0.04, 0.2, continental);
+  height = lerp(height, SEA_LEVEL - 2, river * 0.9);
+
+  const temperature = fbm(x / 850, z / 850, seed + 6000, 3) - Math.max(0, height - 90) / 100;
+  const moisture = fbm(x / 720, z / 720, seed + 7000, 3);
+  height = Math.floor(clamp(height, 28, 178));
+
+  let biome;
+  if (height >= 122) biome = 'snowy_peaks';
+  else if (height >= 98) biome = temperature < -0.08 ? 'snowy_slopes' : 'windswept_hills';
+  else if (height < SEA_LEVEL - 5) biome = 'ocean';
+  else if (river > 0.55 || height < SEA_LEVEL) biome = 'river';
+  else if (temperature > 0.3 && moisture < -0.08) biome = 'desert';
+  else if (temperature < -0.25) biome = 'taiga';
+  else if (moisture > 0.28) biome = 'birch_forest';
+  else if (moisture > 0.08) biome = 'forest';
+  else biome = 'plains';
+
+  return {height, biome, river};
 }
 
-function terrainHeight(worldX, worldZ, seed) {
-  const dx = worldX - ISLAND_CENTER_X;
-  const dz = worldZ - ISLAND_CENTER_Z;
-  const distanceFromCenter = Math.sqrt(dx * dx + dz * dz);
+function setBlock(chunk, x, y, z, block) {
+  if (x < 0 || x >= CHUNK_WIDTH || z < 0 || z >= CHUNK_WIDTH || y < 0 || y >= WORLD_HEIGHT) return;
+  chunk.blocks[y * CHUNK_AREA + z * CHUNK_WIDTH + x] = block;
+  chunk.maxY = Math.max(chunk.maxY, y);
+}
 
-  // Island shape: 1.0 at center, 0.0 at radius edge, negative beyond
-  const islandShape = 1 - smoothstep(ISLAND_RADIUS * 0.6, ISLAND_RADIUS, distanceFromCenter);
+function generateBase(chunk, seed, blocks) {
+  for (let x = 0; x < CHUNK_WIDTH; x++) {
+    for (let z = 0; z < CHUNK_WIDTH; z++) {
+      const worldX = chunk.x * CHUNK_WIDTH + x;
+      const worldZ = chunk.z * CHUNK_WIDTH + z;
+      const terrain = sampleTerrain(worldX, worldZ, seed);
+      const column = z * CHUNK_WIDTH + x;
+      const surface = terrain.height;
+      const wet = surface < SEA_LEVEL;
+      const soilDepth = 3 + Math.floor(hash2D(worldX, worldZ, seed + 8000) * 3);
+      const ceiling = Math.max(surface, SEA_LEVEL);
+      chunk.surfaceHeights[column] = surface;
+      chunk.biomes[column] = terrain.biome;
+      chunk.maxY = Math.max(chunk.maxY, ceiling);
 
-  const continentalness = fbm(worldX / 1200, worldZ / 1200, seed + 1000, 6);
-  const erosion = fbm(worldX / 480, worldZ / 480, seed + 2000, 5);
-  const ridgeBase = fbm(worldX / 750, worldZ / 750, seed + 3000, 5);
-  const ridges = 1 - Math.abs(ridgeBase);
-  const detail = fbm(worldX / 120, worldZ / 120, seed + 6000, 4);
-
-  // Blend island shape with continentalness
-  const blendedContinentalness = lerp(-0.5, continentalness * 0.5, islandShape);
-
-  let height = SEA_LEVEL + blendedContinentalness * 28 + detail * 5 * islandShape;
-  const mountainMask = smoothstep(0.52, 0.82, ridges) *
-    smoothstep(0.02, 0.38, blendedContinentalness) * islandShape;
-  height += mountainMask * mountainMask * (36 - erosion * 13);
-
-  // Narrow, seed-stable river valleys that cut through inland terrain.
-  const riverNoise = Math.abs(fbm(worldX / 420, worldZ / 420, seed + 7000, 4));
-  const riverStrength = 1 - smoothstep(0.012, 0.055, riverNoise);
-  if (blendedContinentalness > -0.08 && islandShape > 0.3) {
-    height = lerp(height, SEA_LEVEL - 2, riverStrength * 0.92 * islandShape);
+      // Only visit blocks that can be non-air. This removes roughly 70% of the
+      // inner-loop work compared with scanning all 256 blocks in every column.
+      for (let y = 0; y <= ceiling; y++) {
+        let block = blocks.air;
+        if (y === 0 || (y < 4 && hash2D(worldX + y * 7, worldZ, seed + 9) > 0.52)) {
+          block = blocks.bedrock;
+        } else if (y > surface) {
+          block = blocks.water;
+        } else if (y < surface - soilDepth) {
+          const cave = Math.sin(worldX * 0.105 + seed * 0.0007) +
+            Math.sin(worldZ * 0.127 - seed * 0.0009) + Math.sin(y * 0.165 + (worldX + worldZ) * 0.024);
+          if (y > 7 && y < surface - 5 && cave > 2.58) continue;
+          block = y < 20 ? blocks.deepslate : blocks.stone;
+          const ore = hash2D(worldX * 31 + y, worldZ * 17 - y, seed + 9000);
+          if (y < 32 && ore > 0.9975) block = blocks.goldOre;
+          else if (y < 58 && ore > 0.992) block = blocks.ironOre;
+          else if (y < 110 && ore > 0.982) block = blocks.coalOre;
+        } else if (terrain.biome === 'desert' || (wet && surface >= SEA_LEVEL - 4)) {
+          block = y < surface - 2 ? blocks.sandstone : blocks.sand;
+        } else if (wet) {
+          const floor = hash2D(worldX, worldZ, seed + 9100);
+          block = floor > 0.82 ? blocks.clay : floor > 0.55 ? blocks.gravel : blocks.dirt;
+        } else if (y < surface) {
+          block = blocks.dirt;
+        } else if (terrain.biome === 'snowy_peaks' || terrain.biome === 'snowy_slopes') {
+          block = blocks.snow;
+        } else if (terrain.biome === 'windswept_hills') {
+          block = hash2D(worldX, worldZ, seed + 9200) > 0.45 ? blocks.stoneTop : blocks.grass;
+        } else {
+          block = blocks.grass;
+        }
+        chunk.blocks[y * CHUNK_AREA + column] = block;
+      }
+    }
   }
+}
 
-  return {
-    height: Math.floor(clamp(height, 0, 158)),
-    continentalness: blendedContinentalness,
-    riverStrength,
-    islandShape
-  };
+function decorate(chunk, seed, blocks) {
+  // A safe margin makes chunks independent and deterministic: decoration never
+  // mutates a neighbor that may be generated concurrently.
+  for (let x = 2; x <= 13; x++) {
+    for (let z = 2; z <= 13; z++) {
+      const column = z * CHUNK_WIDTH + x;
+      const surface = chunk.surfaceHeights[column];
+      const biome = chunk.biomes[column];
+      if (surface < SEA_LEVEL || surface > 118) continue;
+      const worldX = chunk.x * CHUNK_WIDTH + x;
+      const worldZ = chunk.z * CHUNK_WIDTH + z;
+      const roll = hash2D(worldX, worldZ, seed + 12000);
+
+      if (biome === 'desert') {
+        if (roll < 0.008) for (let y = 1; y <= 2 + (roll < 0.002 ? 1 : 0); y++) setBlock(chunk, x, surface + y, z, blocks.cactus);
+        continue;
+      }
+
+      const chance = {birch_forest: 0.036, forest: 0.029, taiga: 0.025, plains: 0.003}[biome] || 0;
+      if (roll >= chance) {
+        if (biome === 'plains' && roll > 0.89) setBlock(chunk, x, surface + 1, z, roll > 0.975 ? blocks.dandelion : blocks.tallGrass);
+        continue;
+      }
+      const type = biome === 'taiga' ? 'spruce' : biome === 'birch_forest' ? 'birch' : 'oak';
+      addTree(chunk, x, surface, z, type, hash2D(worldX, worldZ, seed + 13000), blocks);
+    }
+  }
+}
+
+function addTree(chunk, x, surface, z, type, roll, blocks) {
+  const log = blocks[`${type}Log`];
+  const leaves = blocks[`${type}Leaves`];
+  const height = (type === 'spruce' ? 5 : 4) + Math.floor(roll * 3);
+  for (let y = 1; y <= height; y++) setBlock(chunk, x, surface + y, z, log);
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dy = height - 2; dy <= height + 1; dy++) {
+        const edge = Math.abs(dx) === 2 && Math.abs(dz) === 2;
+        if (edge && dy !== height) continue;
+        const index = (surface + dy) * CHUNK_AREA + (z + dz) * CHUNK_WIDTH + x + dx;
+        if (chunk.blocks[index] === blocks.air) setBlock(chunk, x + dx, surface + dy, z + dz, leaves);
+      }
+    }
+  }
+}
+
+function addStructures(chunk, seed, blocks) {
+  chunk.lootChests = [];
+  chunk.vendors = [];
+  const roll = hash2D(chunk.x, chunk.z, seed + 18000);
+  const column = 8 * CHUNK_WIDTH + 8;
+  const baseY = chunk.surfaceHeights[column];
+  if (baseY <= SEA_LEVEL || baseY >= 105) return;
+
+  if (roll > 0.987) {
+    for (let x = 5; x <= 11; x++) for (let z = 5; z <= 11; z++) {
+      setBlock(chunk, x, baseY, z, (x + z) % 5 === 0 ? blocks.mossyCobblestone : blocks.cobblestone);
+      for (let y = baseY + 1; y <= baseY + 4; y++) setBlock(chunk, x, y, z, x === 5 || x === 11 || z === 5 || z === 11 ? blocks.oakPlanks : blocks.air);
+      setBlock(chunk, x, baseY + 5, z, blocks.oakPlanks);
+    }
+    setBlock(chunk, 8, baseY + 1, 11, blocks.air);
+    setBlock(chunk, 8, baseY + 2, 11, blocks.air);
+    setBlock(chunk, 7, baseY + 1, 7, blocks.chest);
+    chunk.lootChests.push({x: chunk.x * 16 + 7, y: baseY + 1, z: chunk.z * 16 + 7});
+    chunk.vendors.push({x: chunk.x * 16 + 8.5, y: baseY + 1, z: chunk.z * 16 + 8.5});
+  } else if (roll > 0.955) {
+    setBlock(chunk, 8, baseY + 1, 8, blocks.chest);
+    chunk.lootChests.push({x: chunk.x * 16 + 8, y: baseY + 1, z: chunk.z * 16 + 8});
+  }
 }
 
 module.exports = {
   name: GENERATOR_ID,
-  version: '1.0.0',
+  version: '2.0.0',
 
   onEnable(api) {
-    if (!api.server) {
-      throw new Error('realistic-world requires the PluginManager server option');
-    }
-
-    const mcData = require('minecraft-data')(api.server.config.version);
-    const blocks = blockIds(mcData);
-
+    if (!api.server) throw new Error('realistic-world requires the PluginManager server option');
+    const blocks = resolveBlocks(require('minecraft-data')(api.server.config.version));
     api.registerService('worldGenerator', {
       id: GENERATOR_ID,
-      spawnPoint: {x: ISLAND_CENTER_X, y: 75, z: ISLAND_CENTER_Z},
-
+      spawnPoint: {x: 0, y: 75, z: 0},
       generateChunk({chunkX, chunkZ, seed}) {
-        const numericSeed = Number(seed & 0x7fffffffn) | 0;
+        if (!Number.isInteger(chunkX) || !Number.isInteger(chunkZ)) throw new TypeError('Chunk coordinates must be integers');
+        const numericSeed = Number(BigInt(seed) & 0x7fffffffn) | 0;
         const chunk = {
-          x: chunkX,
-          z: chunkZ,
-          blocks: new Uint16Array(16 * 256 * 16),
-          surfaceHeights: new Uint16Array(256),
-          biomes: new Array(256),
+          x: chunkX, z: chunkZ,
+          blocks: new Uint16Array(CHUNK_AREA * WORLD_HEIGHT),
+          surfaceHeights: new Uint16Array(CHUNK_AREA),
+          biomes: new Array(CHUNK_AREA),
           maxY: SEA_LEVEL,
-          generated: true
+          generated: true,
+          generatorVersion: 2
         };
-
-        for (let x = 0; x < 16; x++) {
-          for (let z = 0; z < 16; z++) {
-            const worldX = chunkX * 16 + x;
-            const worldZ = chunkZ * 16 + z;
-            const terrain = terrainHeight(worldX, worldZ, numericSeed);
-            const biome = selectBiome(
-              worldX,
-              worldZ,
-              numericSeed,
-              terrain.height,
-              terrain.continentalness
-            );
-            const column = z * 16 + x;
-            const surface = terrain.height;
-            const underwater = surface < SEA_LEVEL;
-            const soilDepth = 3 + Math.floor(hash2D(worldX, worldZ, numericSeed + 8000) * 3);
-            const caveHorizontal = Math.sin(worldX * 0.11 + numericSeed * 0.001) +
-              Math.sin(worldZ * 0.13 - numericSeed * 0.0013);
-
-            chunk.surfaceHeights[column] = surface;
-            chunk.biomes[column] = biome;
-            chunk.maxY = Math.max(chunk.maxY, underwater ? SEA_LEVEL : surface);
-
-            for (let y = 0; y < 256; y++) {
-              const index = y * 256 + column;
-
-              if (y === 0 || (y < 4 && hash2D(worldX + y, worldZ, numericSeed) > 0.55)) {
-                chunk.blocks[index] = blocks.bedrock;
-              } else if (y > surface && y <= SEA_LEVEL) {
-                chunk.blocks[index] = blocks.water;
-              } else if (y > surface) {
-                chunk.blocks[index] = blocks.air;
-              } else if (y < surface - soilDepth) {
-                // Three cheap intersecting waves create winding chambers
-                // without running expensive octave noise for every block.
-                const cave = caveHorizontal + Math.sin(y * 0.17 + (worldX + worldZ) * 0.025);
-                if (y > 7 && y < surface - 5 && cave > 2.62) {
-                  chunk.blocks[index] = blocks.air;
-                  continue;
-                }
-                let block = blocks.stone;
-                const oreRoll = hash2D(worldX * 31 + y, worldZ * 17 - y, numericSeed + 9000);
-                if (y < 54 && oreRoll > 0.993) block = blocks.ironOre;
-                else if (y < 96 && oreRoll > 0.982) block = blocks.coalOre;
-                chunk.blocks[index] = block;
-              } else if (biome === 'desert' || (underwater && surface >= SEA_LEVEL - 5)) {
-                chunk.blocks[index] = y < surface - 2 ? blocks.sandstone : blocks.sand;
-              } else if (underwater) {
-                chunk.blocks[index] = hash2D(worldX, worldZ, numericSeed + 9100) > 0.65
-                  ? blocks.gravel
-                  : blocks.dirt;
-              } else if (y === surface) {
-                chunk.blocks[index] = biome === 'snowy_peaks' ? blocks.snow : blocks.grass;
-              } else {
-                chunk.blocks[index] = blocks.dirt;
-              }
-            }
-          }
-        }
-
-        // Deterministic vegetation. A two-block margin keeps foliage inside
-        // its owning chunk and avoids writing into chunks not generated yet.
-        for (let x = 2; x <= 13; x++) {
-          for (let z = 2; z <= 13; z++) {
-            const column = z * 16 + x;
-            const biome = chunk.biomes[column];
-            const surface = chunk.surfaceHeights[column];
-            const worldX = chunkX * 16 + x;
-            const worldZ = chunkZ * 16 + z;
-            const roll = hash2D(worldX, worldZ, numericSeed + 12000);
-
-            if (biome === 'desert' && roll > 0.992 && surface >= SEA_LEVEL) {
-              const height = 2 + (roll > 0.997 ? 1 : 0);
-              for (let y = 1; y <= height; y++) {
-                chunk.blocks[(surface + y) * 256 + column] = blocks.cactus;
-              }
-              chunk.maxY = Math.max(chunk.maxY, surface + height);
-              continue;
-            }
-
-            const treeChance = biome === 'forest' ? 0.028 :
-              biome === 'taiga' ? 0.018 : biome === 'plains' ? 0.003 : 0;
-            if (roll >= treeChance || surface < SEA_LEVEL || surface > 108) continue;
-
-            const birch = biome === 'forest' &&
-              hash2D(worldX, worldZ, numericSeed + 13000) > 0.72;
-            const log = birch ? blocks.birchLog : blocks.oakLog;
-            const leaves = birch ? blocks.birchLeaves : blocks.oakLeaves;
-            const trunkHeight = 4 + Math.floor(
-              hash2D(worldX, worldZ, numericSeed + 14000) * 3
-            );
-
-            for (let y = 1; y <= trunkHeight; y++) {
-              chunk.blocks[(surface + y) * 256 + column] = log;
-            }
-
-            for (let dx = -2; dx <= 2; dx++) {
-              for (let dz = -2; dz <= 2; dz++) {
-                for (let dy = trunkHeight - 2; dy <= trunkHeight + 1; dy++) {
-                  if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy !== trunkHeight) continue;
-                  const leafX = x + dx;
-                  const leafZ = z + dz;
-                  const leafY = surface + dy;
-                  const leafIndex = leafY * 256 + leafZ * 16 + leafX;
-                  if (chunk.blocks[leafIndex] === blocks.air) chunk.blocks[leafIndex] = leaves;
-                }
-              }
-            }
-
-            chunk.maxY = Math.max(chunk.maxY, surface + trunkHeight + 1);
-          }
-        }
-
-        chunk.lootChests = [];
-        chunk.vendors = [];
-        const structureRoll = hash2D(chunkX, chunkZ, numericSeed + 18000);
-        const centerColumn = 8 * 16 + 8;
-        const baseY = chunk.surfaceHeights[centerColumn];
-        if (structureRoll > 0.985 && baseY > SEA_LEVEL && baseY < 105) {
-          for (let x = 5; x <= 11; x++) {
-            for (let z = 5; z <= 11; z++) {
-              chunk.blocks[baseY * 256 + z * 16 + x] = blocks.cobblestone;
-              for (let y = baseY + 1; y <= baseY + 4; y++) {
-                const wall = x === 5 || x === 11 || z === 5 || z === 11;
-                chunk.blocks[y * 256 + z * 16 + x] = wall ? blocks.oakPlanks : blocks.air;
-              }
-              chunk.blocks[(baseY + 5) * 256 + z * 16 + x] = blocks.oakPlanks;
-            }
-          }
-          chunk.blocks[(baseY + 1) * 256 + 11 * 16 + 8] = blocks.air;
-          chunk.blocks[(baseY + 2) * 256 + 11 * 16 + 8] = blocks.air;
-          chunk.blocks[(baseY + 1) * 256 + 7 * 16 + 7] = blocks.chest;
-          chunk.lootChests.push({x: chunkX * 16 + 7, y: baseY + 1, z: chunkZ * 16 + 7});
-          chunk.vendors.push({x: chunkX * 16 + 8.5, y: baseY + 1, z: chunkZ * 16 + 8.5});
-          chunk.maxY = Math.max(chunk.maxY, baseY + 5);
-        } else if (structureRoll > 0.94 && baseY > SEA_LEVEL) {
-          chunk.blocks[(baseY + 1) * 256 + centerColumn] = blocks.chest;
-          chunk.lootChests.push({x: chunkX * 16 + 8, y: baseY + 1, z: chunkZ * 16 + 8});
-        }
-
+        generateBase(chunk, numericSeed, blocks);
+        decorate(chunk, numericSeed, blocks);
+        addStructures(chunk, numericSeed, blocks);
         return chunk;
       }
     });
-
-    api.logger.log('Registered vanilla-inspired realistic world generator');
+    api.logger.log('Registered optimized infinite terrain generator (10 biomes, caves, ores, vegetation, and structures)');
   },
 
-  onDisable(api) {
-    api.logger.log('World generator stopped');
-  }
+  onDisable(api) { api.logger.log('World generator stopped'); }
 };
