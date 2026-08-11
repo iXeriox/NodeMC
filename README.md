@@ -68,8 +68,6 @@ server lightweight.
 
 Commands use the client Brigadier tree for tab completion. Close misspellings within
 two edits are also corrected automatically, such as `/statsu` resolving to `/status`.
-Use `/plugins` to list every loaded plugin, its version, and a short explanation of
-the subsystem it provides.
 
 Contributing
 ------------

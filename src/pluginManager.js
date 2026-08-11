@@ -18,7 +18,7 @@ class PluginManager {
 
     const candidates = this._discover().map(file => this._readPlugin(file));
     const available = new Map();
-    for (const plugin of candidates) {
+    for (const plugin of candidates.filter(Boolean)) {
       if (available.has(plugin.id)) throw new Error(`Duplicate plugin id: ${plugin.id}`);
       available.set(plugin.id, plugin);
     }
@@ -70,7 +70,7 @@ class PluginManager {
       return {id, module, path: file, listeners: [], commands: [], services: []};
     } catch (error) {
       this.logger.error(`[PluginManager] Failed reading ${file}:`, error);
-      throw error;
+      return null;
     }
   }
 

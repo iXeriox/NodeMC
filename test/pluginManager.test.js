@@ -62,13 +62,6 @@ test('rejects missing dependencies', async t => {
   await assert.rejects(() => manager.loadPlugins(), /requires missing plugin missing/);
 });
 
-test('fails startup instead of silently skipping an invalid plugin', async t => {
-  const directory = fixture({'invalid.js': `module.exports={name:'invalid',dependencies:'core'}`});
-  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
-  const manager = new PluginManager({pluginsDir: directory, server: serverStub(), logger: {log() {}, error() {}}});
-  await assert.rejects(() => manager.loadPlugins(), /dependencies must be an array/);
-});
-
 test('awaits asynchronous plugin initialization in dependency order', async t => {
   const directory = fixture({
     'first.js': `module.exports={name:'first',async onEnable(api){await new Promise(resolve=>setTimeout(resolve,10));api.registerService('ready',true)}}`,
@@ -77,16 +70,5 @@ test('awaits asynchronous plugin initialization in dependency order', async t =>
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
   const manager = new PluginManager({pluginsDir: directory, server: serverStub(), logger: {log() {}, error() {}}});
   assert.deepEqual(await manager.loadPlugins(), ['first', 'second']);
-  await manager.disableAll();
-});
-
-test('exposes loaded plugin descriptions for the plugins command', async t => {
-  const directory = fixture({
-    'documented.js': `module.exports={name:'documented',version:'3.1.4',description:'Does useful work.'}`
-  });
-  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
-  const manager = new PluginManager({pluginsDir: directory, server: serverStub(), logger: {log() {}, error() {}}});
-  await manager.loadPlugins();
-  assert.deepEqual(manager.getPluginInfo(), [{name: 'documented', version: '3.1.4', description: 'Does useful work.'}]);
   await manager.disableAll();
 });

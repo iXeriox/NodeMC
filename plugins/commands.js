@@ -3,7 +3,6 @@
 module.exports = {
   name: 'commands',
   version: '2.0.0',
-  description: 'Registers server commands, permissions, correction, and client completion.',
 
   onEnable(api) {
     const commands = new Map();
@@ -37,10 +36,16 @@ module.exports = {
           api.logger.error(`Command /${command.name} failed:`, error);
           api.getService('connections')?.sendMessage(player, 'Command failed.', 'red');
         });
+        const command = commands.get(name.toLowerCase()) || Array.from(commands.values())
+          .find(candidate => candidate.aliases.includes(name.toLowerCase()));
+        if (!command || typeof command.executor !== 'function') return false;
+        command.executor({player, args, server: api.server, reply: (message, color) => {
+          api.getService('connections')?.sendMessage(player, message, color);
+        }});
         return true;
       },
       sendTree(client) {
-        const nodes = [{flags: flags(0, false), children: [], extraNodeData: undefined}];
+        const nodes = [{flags: 0, children: []}];
         for (const command of commands.values()) addCommand(nodes, command);
         client.write('declare_commands', {nodes, rootIndex: 0});
       }
@@ -59,25 +64,13 @@ module.exports = {
         reply(`Online (${names.length}): ${names.join(', ') || 'nobody'}`, 'aqua');
       }
     });
-    api.registerCommand('plugins', {
-      description: 'Show loaded plugins and what they do',
-      executor: ({server, reply}) => {
-        const plugins = server.pluginManager.getPluginInfo();
-        reply(`Loaded plugins (${plugins.length}):\n${plugins.map(plugin =>
-          `${plugin.name} v${plugin.version} — ${plugin.description}`).join('\n')}`, 'aqua');
-      }
-    });
     api.logger.log('Command registry and client completion tree enabled');
   }
 };
 
 function addCommand(nodes, command) {
   const literalIndex = nodes.length;
-  const literal = {
-    flags: flags(1, command.arguments.length === 0),
-    children: [],
-    extraNodeData: {name: command.name}
-  };
+  const literal = {flags: command.arguments.length ? 0x01 : 0x01 | 0x04, children: [], name: command.name};
   nodes.push(literal);
   nodes[0].children.push(literalIndex);
   let parent = literal;
@@ -86,34 +79,14 @@ function addCommand(nodes, command) {
     const nodeIndex = nodes.length;
     parent.children.push(nodeIndex);
     parent = {
-      flags: flags(2, index === command.arguments.length - 1),
+      flags: 0x02 | (index === command.arguments.length - 1 ? 0x04 : 0),
       children: [],
-      extraNodeData: {
-        name: argument.name,
-        parser: argument.parser || 'brigadier:string',
-        properties: normalizeProperties(argument.parser, argument.properties)
-      }
+      name: argument.name,
+      parser: argument.parser || 'brigadier:string',
+      properties: argument.properties || {type: 0}
     };
     nodes.push(parent);
   }
-}
-
-function flags(commandNodeType, hasCommand) {
-  return {
-    unused: 0,
-    has_custom_suggestions: 0,
-    has_redirect_node: 0,
-    has_command: hasCommand ? 1 : 0,
-    command_node_type: commandNodeType
-  };
-}
-
-function normalizeProperties(parser = 'brigadier:string', properties) {
-  if (parser === 'brigadier:string') {
-    if (typeof properties === 'string') return properties;
-    return ['SINGLE_WORD', 'QUOTABLE_PHRASE', 'GREEDY_PHRASE'][properties?.type] || 'SINGLE_WORD';
-  }
-  return properties;
 }
 
 function nearest(value, choices) {

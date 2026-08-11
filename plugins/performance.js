@@ -5,7 +5,6 @@ const {monitorEventLoopDelay} = require('node:perf_hooks');
 module.exports = {
   name: 'performance',
   version: '1.0.0',
-  description: 'Monitors TPS, event-loop lag, memory, and server load.',
   dependencies: ['commands', 'connections'],
   onEnable(api) {
     const delay = monitorEventLoopDelay({resolution: 20});
@@ -24,9 +23,9 @@ module.exports = {
     });
     const snapshot = () => ({
       tps: Number(tps.toFixed(1)),
-      lagMs: Number.isFinite(delay.mean) ? Number((delay.mean / 1e6).toFixed(1)) : 0,
+      lagMs: Number((delay.mean / 1e6).toFixed(1)),
       memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
-      busy: tps < 18 || (Number.isFinite(delay.mean) && delay.mean / 1e6 > 50)
+      busy: tps < 18 || delay.mean / 1e6 > 50
     });
     api.registerService('performance', {snapshot});
     api.registerCommand('serverusage', {

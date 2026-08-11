@@ -3,7 +3,6 @@
 module.exports = {
   name: 'time',
   version: '1.0.0',
-  description: 'Scales daylight and broadcasts efficient time updates.',
   dependencies: ['connections'],
   onEnable(api) {
     const connections = api.getService('connections');
